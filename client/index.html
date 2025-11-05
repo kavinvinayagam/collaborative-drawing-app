@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Collaborative Drawing Canvas</title>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --danger-color: #e74c3c;
+            --success-color: #2ecc71;
+            --bg-dark: #2c3e50;
+            --bg-light: #ecf0f1;
+            --text-dark: #2c3e50;
+            --border-color: #bdc3c7;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-light);
+            overflow: hidden;
+        }
+
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-dark);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--danger-color);
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.connected {
+            background: var(--success-color);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Toolbar */
+        .toolbar {
+            background: white;
+            padding: 15px 20px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            border-bottom: 2px solid var(--border-color);
+            flex-wrap: wrap;
+        }
+
+        .tool-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            padding-right: 20px;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .tool-group:last-child {
+            border-right: none;
+        }
+
+        .tool-group label {
+            font-weight: 600;
+            color: var(--text-dark);
+            font-size: 14px;
+        }
+
+        .tool-btn {
+            padding: 8px 16px;
+            border: 2px solid var(--border-color);
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .tool-btn:hover {
+            background: var(--bg-light);
+            transform: translateY(-2px);
+        }
+
+        .tool-btn.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .color-picker-wrapper {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .color-preview {
+            width: 35px;
+            height: 35px;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .color-preview:hover {
+            transform: scale(1.1);
+        }
+
+        #colorPicker {
+            width: 60px;
+            height: 35px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        #strokeWidth {
+            width: 120px;
+            cursor: pointer;
+        }
+
+        .stroke-value {
+            font-weight: 600;
+            color: var(--primary-color);
+            min-width: 30px;
+        }
+
+        /* Main Content */
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Canvas Area */
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            background: white;
+            overflow: hidden;
+        }
+
+        #drawingCanvas {
+            cursor: crosshair;
+            display: block;
+        }
+
+        /* Cursor indicators for other users */
+        .remote-cursor {
+            position: absolute;
+            pointer-events: none;
+            z-index: 1000;
+            transition: all 0.05s linear;
+        }
+
+        .cursor-pointer {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        .cursor-label {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: white;
+            border-left: 2px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-section {
+            padding: 20px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .sidebar-section h3 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: var(--text-dark);
+        }
+
+        .user-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .user-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: var(--bg-light);
+            border-radius: 6px;
+        }
+
+        .user-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .user-name {
+            flex: 1;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .user-badge {
+            background: var(--success-color);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        /* History Controls */
+        .history-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .history-btn {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid var(--border-color);
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .history-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .history-btn:not(:disabled):hover {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .clear-btn {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid var(--danger-color);
+            background: white;
+            color: var(--danger-color);
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 10px;
+            transition: all 0.2s;
+        }
+
+        .clear-btn:hover {
+            background: var(--danger-color);
+            color: white;
+        }
+
+        /* Stats */
+        .stats {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #7f8c8d;
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                display: none;
+            }
+
+            .toolbar {
+                gap: 10px;
+            }
+
+            .tool-group {
+                padding-right: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎨 Real-Time Collaborative Canvas</h1>
+            <div class="connection-status">
+                <span class="status-indicator" id="statusIndicator"></span>
+                <span id="statusText">Connecting...</span>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <!-- Tool Selection -->
+            <div class="tool-group">
+                <label>Tool:</label>
+                <button class="tool-btn active" id="brushBtn" data-tool="brush">🖌️ Brush</button>
+                <button class="tool-btn" id="eraserBtn" data-tool="eraser">🧹 Eraser</button>
+            </div>
+
+            <!-- Color Selection -->
+            <div class="tool-group">
+                <label>Color:</label>
+                <div class="color-picker-wrapper">
+                    <div class="color-preview" id="colorPreview" style="background: #000000;"></div>
+                    <input type="color" id="colorPicker" value="#000000">
+                </div>
+            </div>
+
+            <!-- Stroke Width -->
+            <div class="tool-group">
+                <label>Width:</label>
+                <input type="range" id="strokeWidth" min="1" max="50" value="5">
+                <span class="stroke-value" id="strokeValue">5px</span>
+            </div>
+
+            <!-- History Controls -->
+            <div class="tool-group">
+                <button class="tool-btn" id="undoBtn" disabled>↶ Undo</button>
+                <button class="tool-btn" id="redoBtn" disabled>↷ Redo</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Canvas Area -->
+            <div class="canvas-container" id="canvasContainer">
+                <canvas id="drawingCanvas"></canvas>
+                <!-- Remote cursors will be added here dynamically -->
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <!-- Online Users -->
+                <div class="sidebar-section">
+                    <h3>👥 Online Users (<span id="userCount">0</span>)</h3>
+                    <div class="user-list" id="userList">
+                        <!-- Users will be added dynamically -->
+                    </div>
+                </div>
+
+                <!-- History & Clear -->
+                <div class="sidebar-section">
+                    <h3>🕐 History</h3>
+                    <div class="history-controls">
+                        <button class="history-btn" id="sidebarUndo" disabled>Undo</button>
+                        <button class="history-btn" id="sidebarRedo" disabled>Redo</button>
+                    </div>
+                    <button class="clear-btn" id="clearBtn">🗑️ Clear Canvas</button>
+                </div>
+
+                <!-- Statistics -->
+                <div class="sidebar-section stats">
+                    <h3>📊 Statistics</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">Operations:</span>
+                        <span class="stat-value" id="operationCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Undo Stack:</span>
+                        <span class="stat-value" id="undoCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Redo Stack:</span>
+                        <span class="stat-value" id="redoCount">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CANVAS MANAGER
+        // ============================================
+        class CanvasManager {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.isDrawing = false;
+                this.currentTool = 'brush';
+                this.currentColor = '#000000';
+                this.strokeWidth = 5;
+                
+                this.lastX = 0;
+                this.lastY = 0;
+                
+                this.setupCanvas();
+                this.attachEventListeners();
+            }
+
+            setupCanvas() {
+                // Set canvas size to fill container
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+            }
+
+            resizeCanvas() {
+                const container = this.canvas.parentElement;
+                this.canvas.width = container.clientWidth;
+                this.canvas.height = container.clientHeight;
+                
+                // Redraw all operations after resize
+                if (window.app && window.app.historyManager) {
+                    window.app.historyManager.redrawCanvas();
+                }
+            }
+
+            attachEventListeners() {
+                // Mouse events
+                this.canvas.addEventListener('mousedown', (e) => this.startDrawing(e));
+                this.canvas.addEventListener('mousemove', (e) => this.draw(e));
+                this.canvas.addEventListener('mouseup', () => this.stopDrawing());
+                this.canvas.addEventListener('mouseout', () => this.stopDrawing());
+
+                // Touch events for mobile
+                this.canvas.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousedown', {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY
+                    });
+                    this.canvas.dispatchEvent(mouseEvent);
+                });
+
+                this.canvas.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousemove', {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY
+                    });
+                    this.canvas.dispatchEvent(mouseEvent);
+                });
+
+                this.canvas.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    const mouseEvent = new MouseEvent('mouseup', {});
+                    this.canvas.dispatchEvent(mouseEvent);
+                });
+            }
+
+            getMousePos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+
+            startDrawing(e) {
+                this.isDrawing = true;
+                const pos = this.getMousePos(e);
+                this.lastX = pos.x;
+                this.lastY = pos.y;
+            }
+
+            draw(e) {
+                if (!this.isDrawing) return;
+
+                const pos = this.getMousePos(e);
+                
+                // Create operation object
+                const operation = {
+                    type: 'draw',
+                    tool: this.currentTool,
+                    color: this.currentColor,
+                    width: this.strokeWidth,
+                    startX: this.lastX,
+                    startY: this.lastY,
+                    endX: pos.x,
+                    endY: pos.y,
+                    timestamp: Date.now()
+                };
+
+                // Draw locally
+                this.drawOperation(operation);
+
+                // Send to server via WebSocket
+                if (window.app && window.app.wsClient) {
+                    window.app.wsClient.sendOperation(operation);
+                }
+
+                // Add to history
+                if (window.app && window.app.historyManager) {
+                    window.app.historyManager.addOperation(operation);
+                }
+
+                // Update last position
+                this.lastX = pos.x;
+                this.lastY = pos.y;
+
+                // Send cursor position
+                if (window.app && window.app.wsClient) {
+                    window.app.wsClient.sendCursorPosition(pos.x, pos.y);
+                }
+            }
+
+            stopDrawing() {
+                if (this.isDrawing) {
+                    this.isDrawing = false;
+                    // Finalize stroke - could be used for grouping operations
+                }
+            }
+
+            drawOperation(operation) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(operation.startX, operation.startY);
+                this.ctx.lineTo(operation.endX, operation.endY);
+                
+                if (operation.tool === 'eraser') {
+                    this.ctx.globalCompositeOperation = 'destination-out';
+                    this.ctx.strokeStyle = 'rgba(0,0,0,1)';
+                } else {
+                    this.ctx.globalCompositeOperation = 'source-over';
+                    this.ctx.strokeStyle = operation.color;
+                }
+                
+                this.ctx.lineWidth = operation.width;
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+                this.ctx.stroke();
+            }
+
+            clear() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+
+            setTool(tool) {
+                this.currentTool = tool;
+            }
+
+            setColor(color) {
+                this.currentColor = color;
+            }
+
+            setStrokeWidth(width) {
+                this.strokeWidth = width;
+            }
+        }
+
+        // ============================================
+        // HISTORY MANAGER (Undo/Redo)
+        // ============================================
+        class HistoryManager {
+            constructor(canvasManager) {
+                this.canvasManager = canvasManager;
+                this.operations = []; // All operations in order
+                this.undoStack = [];
+                this.redoStack = [];
+                this.currentIndex = -1;
+            }
+
+            addOperation(operation) {
+                // Add operation and clear redo stack
+                this.operations.push(operation);
+                this.currentIndex = this.operations.length - 1;
+                this.redoStack = [];
+                this.updateUI();
+            }
+
+            undo() {
+                if (this.currentIndex < 0) return;
+                
+                const operation = this.operations[this.currentIndex];
+                this.undoStack.push(operation);
+                this.currentIndex--;
+                
+                // Send undo to server
+                if (window.app && window.app.wsClient) {
+                    window.app.wsClient.sendUndo();
+                }
+                
+                this.redrawCanvas();
+                this.updateUI();
+            }
+
+            redo() {
+                if (this.undoStack.length === 0) return;
+                
+                const operation = this.undoStack.pop();
+                this.currentIndex++;
+                
+                // Send redo to server
+                if (window.app && window.app.wsClient) {
+                    window.app.wsClient.sendRedo();
+                }
+                
+                this.redrawCanvas();
+                this.updateUI();
+            }
+
+            redrawCanvas() {
+                this.canvasManager.clear();
+                
+                // Redraw all operations up to currentIndex
+                for (let i = 0; i <= this.currentIndex; i++) {
+                    this.canvasManager.drawOperation(this.operations[i]);
+                }
+            }
+
+            receiveRemoteOperation(operation) {
+                // Add remote operation to history
+                this.operations.push(operation);
+                this.currentIndex = this.operations.length - 1;
+                this.canvasManager.drawOperation(operation);
+                this.updateUI();
+            }
+
+            clear() {
+                this.operations = [];
+                this.undoStack = [];
+                this.redoStack = [];
+                this.currentIndex = -1;
+                this.canvasManager.clear();
+                this.updateUI();
+            }
+
+            updateUI() {
+                const canUndo = this.currentIndex >= 0;
+                const canRedo = this.undoStack.length > 0;
+                
+                document.getElementById('undoBtn').disabled = !canUndo;
+                document.getElementById('redoBtn').disabled = !canRedo;
+                document.getElementById('sidebarUndo').disabled = !canUndo;
+                document.getElementById('sidebarRedo').disabled = !canRedo;
+                
+                // Update stats
+                document.getElementById('operationCount').textContent = this.operations.length;
+                document.getElementById('undoCount').textContent = this.currentIndex + 1;
+                document.getElementById('redoCount').textContent = this.undoStack.length;
+            }
+        }
+
+        // ============================================
+        // WEBSOCKET CLIENT
+        // ============================================
+        class WebSocketClient {
+            constructor() {
+                this.ws = null;
+                this.connected = false;
+                this.userId = null;
+                this.userColor = null;
+                this.reconnectInterval = 3000;
+            }
+
+            connect() {
+                // Change this URL to your actual WebSocket server
+                const wsUrl = 'ws://localhost:3000';
+                
+                try {
+                    this.ws = new WebSocket(wsUrl);
+                    
+                    this.ws.onopen = () => {
+                        console.log('WebSocket connected');
+                        this.connected = true;
+                        this.updateConnectionStatus(true);
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+                        this.handleMessage(data);
+                    };
+
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.updateConnectionStatus(false);
+                    };
+
+                    this.ws.onclose = () => {
+                        console.log('WebSocket disconnected');
+                        this.connected = false;
+                        this.updateConnectionStatus(false);
+                        
+                        // Attempt reconnection
+                        setTimeout(() => this.connect(), this.reconnectInterval);
+                    };
+                } catch (error) {
+                    console.error('Failed to connect:', error);
+                    this.updateConnectionStatus(false);
+                    setTimeout(() => this.connect(), this.reconnectInterval);
+                }
+            }
+
+            handleMessage(data) {
+                switch (data.type) {
+                    case 'init':
+                        // Server sends user ID and color
+                        this.userId = data.userId;
+                        this.userColor = data.color;
+                        break;
+                        
+                    case 'userJoined':
+                        this.addUser(data.user);
+                        break;
+                        
+                    case 'userLeft':
+                        this.removeUser(data.userId);
+                        break;
+                        
+                    case 'usersList':
+                        this.updateUsersList(data.users);
+                        break;
+                        
+                    case 'draw':
+                        // Remote drawing operation
+                        if (window.app && window.app.historyManager) {
+                            window.app.historyManager.receiveRemoteOperation(data.operation);
+                        }
+                        break;
+                        
+                    case 'cursor':
+                        // Update remote cursor position
+                        this.updateRemoteCursor(data.userId, data.x, data.y, data.userName, data.color);
+                        break;
+                        
+                    case 'clear':
+                        // Canvas cleared by another user
+                        if (window.app && window.app.historyManager) {
+                            window.app.historyManager.clear();
+                        }
+                        break;
+                        
+                    case 'undo':
+                    case 'redo':
+                        // Handle global undo/redo
+                        // This is complex - requires syncing operation history
+                        break;
+                }
+            }
+
+            sendOperation(operation) {
+                if (this.connected && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'draw',
+                        operation: operation
+                    }));
+                }
+            }
+
+            sendCursorPosition(x, y) {
+                if (this.connected && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'cursor',
+                        x: x,
+                        y: y
+                    }));
+                }
+            }
+
+            sendUndo() {
+                if (this.connected && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({ type: 'undo' }));
+                }
+            }
+
+            sendRedo() {
+                if (this.connected && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({ type: 'redo' }));
+                }
+            }
+
+            sendClear() {
+                if (this.connected && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({ type: 'clear' }));
+                }
+            }
+
+            updateConnectionStatus(connected) {
+                const indicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
+                
+                if (connected) {
+                    indicator.classList.add('connected');
+                    statusText.textContent = 'Connected';
+                } else {
+                    indicator.classList.remove('connected');
+                    statusText.textContent = 'Disconnected';
+                }
+            }
+
+            addUser(user) {
+                const userList = document.getElementById('userList');
+                const userItem = document.createElement('div');
+                userItem.className = 'user-item';
+                userItem.id = `user-${user.id}`;
+                userItem.innerHTML = `
+                    <div class="user-color" style="background: ${user.color};"></div>
+                    <span class="user-name">${user.name}</span>
+                    <span class="user-badge">Online</span>
+                `;
+                userList.appendChild(userItem);
+                this.updateUserCount();
+            }
+
+            removeUser(userId) {
+                const userItem = document.getElementById(`user-${userId}`);
+                if (userItem) {
+                    userItem.remove();
+                }
+                
+                // Remove cursor
+                const cursor = document.getElementById(`cursor-${userId}`);
+                if (cursor) {
+                    cursor.remove();
+                }
+                
+                this.updateUserCount();
+            }
+
+            updateUsersList(users) {
+                const userList = document.getElementById('userList');
+                userList.innerHTML = '';
+                
+                users.forEach(user => {
+                    this.addUser(user);
+                });
+            }
+
+            updateUserCount() {
+                const userList = document.getElementById('userList');
+                const count = userList.children.length;
+                document.getElementById('userCount').textContent = count;
+            }
+
+            updateRemoteCursor(userId, x, y, userName, color) {
+                const container = document.getElementById('canvasContainer');
+                let cursor = document.getElementById(`cursor-${userId}`);
+                
+                if (!cursor) {
+                    cursor = document.createElement('div');
+                    cursor.id = `cursor-${userId}`;
+                    cursor.className = 'remote-cursor';
+                    cursor.innerHTML = `
+                        <div class="cursor-pointer" style="background: ${color};"></div>
+                        <div class="cursor-label">${userName}</div>
+                    `;
+                    container.appendChild(cursor);
+                }
+                
+                cursor.style.left = `${x}px`;
+                cursor.style.top = `${y}px`;
+            }
+        }
+
+        // ============================================
+        // MAIN APPLICATION
+        // ============================================
+        class CollaborativeCanvasApp {
+            constructor() {
+                this.canvasManager = new CanvasManager('drawingCanvas');
+                this.historyManager = new HistoryManager(this.canvasManager);
+                this.wsClient = new WebSocketClient();
+                
+                this.setupUI();
+                this.wsClient.connect();
+            }
+
+            setupUI() {
+                // Tool buttons
+                document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+                        e.target.classList.add('active');
+                        this.canvasManager.setTool(e.target.dataset.tool);
+                    });
+                });
+
+                // Color picker
+                const colorPicker = document.getElementById('colorPicker');
+                const colorPreview = document.getElementById('colorPreview');
+                
+                colorPicker.addEventListener('input', (e) => {
+                    const color = e.target.value;
+                    colorPreview.style.background = color;
+                    this.canvasManager.setColor(color);
+                });
+
+                colorPreview.addEventListener('click', () => {
+                    colorPicker.click();
+                });
+
+                // Stroke width
+                const strokeWidth = document.getElementById('strokeWidth');
+                const strokeValue = document.getElementById('strokeValue');
+                
+                strokeWidth.addEventListener('input', (e) => {
+                    const width = e.target.value;
+                    strokeValue.textContent = `${width}px`;
+                    this.canvasManager.setStrokeWidth(parseInt(width));
+                });
+
+                // Undo/Redo buttons
+                document.getElementById('undoBtn').addEventListener('click', () => {
+                    this.historyManager.undo();
+                });
+
+                document.getElementById('redoBtn').addEventListener('click', () => {
+                    this.historyManager.redo();
+                });
+
+                document.getElementById('sidebarUndo').addEventListener('click', () => {
+                    this.historyManager.undo();
+                });
+
+                document.getElementById('sidebarRedo').addEventListener('click', () => {
+                    this.historyManager.redo();
+                });
+
+                // Clear button
+                document.getElementById('clearBtn').addEventListener('click', () => {
+                    if (confirm('Are you sure you want to clear the entire canvas? This will affect all users.')) {
+                        this.historyManager.clear();
+                        this.wsClient.sendClear();
+                    }
+                });
+
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                        if (e.key === 'z' && !e.shiftKey) {
+                            e.preventDefault();
+                            this.historyManager.undo();
+                        } else if (e.key === 'z' && e.shiftKey || e.key === 'y') {
+                            e.preventDefault();
+                            this.historyManager.redo();
+                        }
+                    }
+                });
+            }
+        }
+
+        // Initialize app when DOM is ready
+        window.app = null;
+        document.addEventListener('DOMContentLoaded', () => {
+            window.app = new CollaborativeCanvasApp();
+        });
+    </script>
+</body>
+</html>
