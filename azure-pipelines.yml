@@ -80,7 +80,7 @@ stages:
         versionSpec: '$(nodeVersion)'
 
     # 2. Install server dependencies
-    - script: npm ci
+    - script: npm install
       displayName: "Install Server Packages"
       workingDirectory: '$(serverPath)'
 
