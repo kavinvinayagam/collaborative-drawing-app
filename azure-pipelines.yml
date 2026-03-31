@@ -1,3 +1,4 @@
+
 trigger:
 - main
 
@@ -7,154 +8,110 @@ variables:
 
 stages:
 
-# ──────────────────────────────────────────
-# STAGE 1 — BUILD CLIENT
-# ──────────────────────────────────────────
-- stage: BuildClient
-  displayName: "CI — Build React Client"
-  jobs:
-  - job: ClientBuild
-    displayName: "Build Frontend"
-    pool:
-      vmImage: 'ubuntu-latest'
-
-    steps:
-
-    # Debug — find exact folder structure
-    - script: |
-        echo "=== REPO ROOT ==="
-        ls -la
-        echo ""
-        echo "=== ALL PACKAGE.JSON FILES ==="
-        find . -name "package.json" -not -path "*/node_modules/*"
-      displayName: "Debug — Show Structure"
-
-    - task: NodeTool@0
-      displayName: "Install Node.js"
-      inputs:
-        versionSpec: '$(nodeVersion)'
-
-    - script: |
-        cd client
-        npm install
-      displayName: "Install Client Packages"
-
-    - script: |
-        cd client
-        npm run build
-      displayName: "Build React App"
-
-    - task: CopyFiles@2
-      displayName: "Copy Client Build"
-      inputs:
-        SourceFolder: 'client/build'
-        Contents: '**'
-        TargetFolder: '$(Build.ArtifactStagingDirectory)/client'
-
-    - task: PublishBuildArtifacts@1
-      displayName: "Upload Client Artifact"
-      inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)/client'
-        ArtifactName: 'client-drop'
-
-# ──────────────────────────────────────────
-# STAGE 2 — BUILD SERVER
-# ──────────────────────────────────────────
+# ──────────────────────────────────────────────
+# STAGE 1 — BUILD SERVER (Node.js)
+# server/ has package.json + server.js
+# ──────────────────────────────────────────────
 - stage: BuildServer
   displayName: "CI — Build Node.js Server"
-  dependsOn: []
   jobs:
   - job: ServerBuild
-    displayName: "Build Backend"
+    displayName: "Install and Package Server"
     pool:
       vmImage: 'ubuntu-latest'
 
     steps:
 
+    # 1. Install Node.js
     - task: NodeTool@0
       displayName: "Install Node.js"
       inputs:
         versionSpec: '$(nodeVersion)'
 
-    - script: |
-        cd server
-        npm install
+    # 2. Install server dependencies
+    #    server/ has package-lock.json so npm ci works
+    - script: npm ci
       displayName: "Install Server Packages"
+      workingDirectory: 'server'
 
+    # 3. Package server files for deployment
+    #    Exclude node_modules (will reinstall on deploy)
     - task: CopyFiles@2
       displayName: "Package Server Files"
       inputs:
         SourceFolder: 'server'
         Contents: |
-          **
-          !node_modules/**
-          !**/*.test.js
+          server.js
+          package.json
+          package-lock.json
         TargetFolder: '$(Build.ArtifactStagingDirectory)/server'
 
-    - task: PublishBuildArtifacts@1
-      displayName: "Upload Server Artifact"
+    # 4. Package client HTML file
+    - task: CopyFiles@2
+      displayName: "Package Client HTML"
       inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)/server'
-        ArtifactName: 'server-drop'
+        SourceFolder: 'client'
+        Contents: 'index.html'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/client'
 
-# ──────────────────────────────────────────
-# STAGE 3 — DEPLOY
-# ──────────────────────────────────────────
+    # 5. Upload everything as one artifact
+    - task: PublishBuildArtifacts@1
+      displayName: "Upload Artifact"
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'app-drop'
+
+# ──────────────────────────────────────────────
+# STAGE 2 — DEPLOY to Local Windows PC
+# ──────────────────────────────────────────────
 - stage: Deploy
   displayName: "CD — Deploy to Local PC"
-  dependsOn:
-  - BuildClient
-  - BuildServer
-  condition: |
-    and
-    (
-      succeeded('BuildClient'),
-      succeeded('BuildServer')
-    )
+  dependsOn: BuildServer
+  condition: succeeded()
 
   jobs:
   - job: DeployJob
+    displayName: "Deploy App to Desktop"
     pool:
-      name: Default                  # your self-hosted agent
+      name: Default               # your self-hosted local agent
 
     steps:
 
+    # 1. Download built artifact
     - task: DownloadBuildArtifacts@1
-      displayName: "Download Client Build"
+      displayName: "Download Artifact"
       inputs:
         buildType: 'current'
         downloadType: 'single'
-        artifactName: 'client-drop'
+        artifactName: 'app-drop'
         downloadPath: '$(System.ArtifactsDirectory)'
 
-    - task: DownloadBuildArtifacts@1
-      displayName: "Download Server Build"
-      inputs:
-        buildType: 'current'
-        downloadType: 'single'
-        artifactName: 'server-drop'
-        downloadPath: '$(System.ArtifactsDirectory)'
-
-    - task: CopyFiles@2
-      displayName: "Deploy Client"
-      inputs:
-        SourceFolder: '$(System.ArtifactsDirectory)\client-drop'
-        Contents: '**'
-        TargetFolder: '$(deployFolder)\client'
-        CleanTargetFolder: true
-
+    # 2. Deploy server files to local folder
     - task: CopyFiles@2
       displayName: "Deploy Server"
       inputs:
-        SourceFolder: '$(System.ArtifactsDirectory)\server-drop'
+        SourceFolder: '$(System.ArtifactsDirectory)\app-drop\server'
         Contents: '**'
         TargetFolder: '$(deployFolder)\server'
         CleanTargetFolder: true
 
+    # 3. Deploy client HTML to local folder
+    - task: CopyFiles@2
+      displayName: "Deploy Client HTML"
+      inputs:
+        SourceFolder: '$(System.ArtifactsDirectory)\app-drop\client'
+        Contents: 'index.html'
+        TargetFolder: '$(deployFolder)\client'
+        CleanTargetFolder: true
+
+    # 4. Install production packages on deployed server
     - script: npm install --production
       displayName: "Install Production Packages"
       workingDirectory: '$(deployFolder)\server'
 
-    - script: echo ✅ Deployment Complete!
-      displayName: "Done"
-
+    # 5. Confirm deployment
+    - script: |
+        echo ✅ Server deployed to $(deployFolder)\server
+        echo ✅ Client deployed to $(deployFolder)\client
+        echo 🚀 Deployment Complete!
+      displayName: "Deployment Done"
