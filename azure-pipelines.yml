@@ -1,19 +1,176 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
+# ════════════════════════════════════════════════════
+#  COLLABORATIVE DRAWING APP — CI/CD PIPELINE
+#  client/ = React Frontend
+#  server/ = Node.js + Socket.IO Backend
+# ════════════════════════════════════════════════════
 
 trigger:
-- main
+- main                              # triggers on push to main branch
 
-pool:
-  vmImage: windows-latest
+variables:
+  nodeVersion: '20.x'               # Node.js LTS version
+  clientPath: 'client'              # path to frontend folder
+  serverPath: 'server'              # path to backend folder
+  deployFolder: 'C:\Users\yamuv\OneDrive\Desktop\Test'  # local deploy path
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+stages:
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+# ──────────────────────────────────────────────────
+# STAGE 1 — BUILD CLIENT (React Frontend)
+# ──────────────────────────────────────────────────
+- stage: BuildClient
+  displayName: "CI — Build React Client"
+  jobs:
+  - job: ClientBuild
+    displayName: "Build Frontend"
+    pool:
+      vmImage: 'ubuntu-latest'       # cloud agent for building
+
+    steps:
+
+    # 1. Install Node.js
+    - task: NodeTool@0
+      displayName: "Install Node.js"
+      inputs:
+        versionSpec: '$(nodeVersion)'
+
+    # 2. Install client dependencies
+    - script: npm ci
+      displayName: "Install Client Packages"
+      workingDirectory: '$(clientPath)'
+
+    # 3. Build React app (creates /build folder)
+    - script: npm run build
+      displayName: "Build React App"
+      workingDirectory: '$(clientPath)'
+
+    # 4. Copy built React files to artifact folder
+    - task: CopyFiles@2
+      displayName: "Copy Client Build"
+      inputs:
+        SourceFolder: '$(clientPath)/build'   # React output folder
+        Contents: '**'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/client'
+
+    # 5. Upload client artifact
+    - task: PublishBuildArtifacts@1
+      displayName: "Upload Client Artifact"
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/client'
+        ArtifactName: 'client-drop'
+
+# ──────────────────────────────────────────────────
+# STAGE 2 — BUILD SERVER (Node.js Backend)
+# ──────────────────────────────────────────────────
+- stage: BuildServer
+  displayName: "CI — Build Node.js Server"
+  dependsOn: []                      # runs PARALLEL to BuildClient
+  jobs:
+  - job: ServerBuild
+    displayName: "Build Backend"
+    pool:
+      vmImage: 'ubuntu-latest'
+
+    steps:
+
+    # 1. Install Node.js
+    - task: NodeTool@0
+      displayName: "Install Node.js"
+      inputs:
+        versionSpec: '$(nodeVersion)'
+
+    # 2. Install server dependencies
+    - script: npm ci
+      displayName: "Install Server Packages"
+      workingDirectory: '$(serverPath)'
+
+    # 3. Copy server files to artifact folder
+    #    Excludes node_modules (reinstalled on deploy)
+    - task: CopyFiles@2
+      displayName: "Package Server Files"
+      inputs:
+        SourceFolder: '$(serverPath)'
+        Contents: |
+          **
+          !node_modules/**          
+          !**/*.test.js             
+          !**/*.spec.js             
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/server'
+
+    # 4. Upload server artifact
+    - task: PublishBuildArtifacts@1
+      displayName: "Upload Server Artifact"
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/server'
+        ArtifactName: 'server-drop'
+
+# ──────────────────────────────────────────────────
+# STAGE 3 — DEPLOY (to Local Windows Folder)
+# ──────────────────────────────────────────────────
+- stage: Deploy
+  displayName: "CD — Deploy to Local PC"
+  dependsOn:
+  - BuildClient                      # waits for BOTH stages to finish
+  - BuildServer
+  condition: |
+    and
+    (
+      succeeded('BuildClient'),
+      succeeded('BuildServer')
+    )
+
+  jobs:
+  - job: DeployJob
+    displayName: "Deploy Full App"
+    pool:
+      name: Default                  # your self-hosted local agent
+
+    steps:
+
+    # 1. Download React client artifact
+    - task: DownloadBuildArtifacts@1
+      displayName: "Download Client Build"
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'client-drop'
+        downloadPath: '$(System.ArtifactsDirectory)'
+
+    # 2. Download Node.js server artifact
+    - task: DownloadBuildArtifacts@1
+      displayName: "Download Server Build"
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'server-drop'
+        downloadPath: '$(System.ArtifactsDirectory)'
+
+    # 3. Deploy React client files
+    - task: CopyFiles@2
+      displayName: "Deploy Client to Folder"
+      inputs:
+        SourceFolder: '$(System.ArtifactsDirectory)\client-drop'
+        Contents: '**'
+        TargetFolder: '$(deployFolder)\client'
+        CleanTargetFolder: true
+
+    # 4. Deploy Node.js server files
+    - task: CopyFiles@2
+      displayName: "Deploy Server to Folder"
+      inputs:
+        SourceFolder: '$(System.ArtifactsDirectory)\server-drop'
+        Contents: '**'
+        TargetFolder: '$(deployFolder)\server'
+        CleanTargetFolder: true
+
+    # 5. Install production packages on deployed server
+    - script: npm install --production
+      displayName: "Install Server Production Packages"
+      workingDirectory: '$(deployFolder)\server'
+
+    # 6. Confirm deployment success
+    - script: |
+        echo ✅ Client deployed to $(deployFolder)\client
+        echo ✅ Server deployed to $(deployFolder)\server
+        echo 🚀 Deployment Complete!
+      displayName: "Deployment Done"
