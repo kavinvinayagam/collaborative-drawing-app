@@ -35,7 +35,7 @@ stages:
         versionSpec: '$(nodeVersion)'
 
     # 2. Install client dependencies
-    - script: npm ci
+    - script: npm install 
       displayName: "Install Client Packages"
       workingDirectory: '$(clientPath)'
 
