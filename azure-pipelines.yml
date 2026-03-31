@@ -1,70 +1,68 @@
-# ════════════════════════════════════════════════════
-#  COLLABORATIVE DRAWING APP — CI/CD PIPELINE
-#  client/ = React Frontend
-#  server/ = Node.js + Socket.IO Backend
-# ════════════════════════════════════════════════════
-
 trigger:
-- main                              # triggers on push to main branch
+- main
 
 variables:
-  nodeVersion: '20.x'               # Node.js LTS version
-  clientPath: 'client'              # path to frontend folder
-  serverPath: 'server'              # path to backend folder
-  deployFolder: 'C:\Users\yamuv\OneDrive\Desktop\Test'  # local deploy path
+  nodeVersion: '20.x'
+  deployFolder: 'C:\Users\yamuv\OneDrive\Desktop\Test'
 
 stages:
 
-# ──────────────────────────────────────────────────
-# STAGE 1 — BUILD CLIENT (React Frontend)
-# ──────────────────────────────────────────────────
+# ──────────────────────────────────────────
+# STAGE 1 — BUILD CLIENT
+# ──────────────────────────────────────────
 - stage: BuildClient
   displayName: "CI — Build React Client"
   jobs:
   - job: ClientBuild
     displayName: "Build Frontend"
     pool:
-      vmImage: 'ubuntu-latest'       # cloud agent for building
+      vmImage: 'ubuntu-latest'
 
     steps:
 
-    # 1. Install Node.js
+    # Debug — find exact folder structure
+    - script: |
+        echo "=== REPO ROOT ==="
+        ls -la
+        echo ""
+        echo "=== ALL PACKAGE.JSON FILES ==="
+        find . -name "package.json" -not -path "*/node_modules/*"
+      displayName: "Debug — Show Structure"
+
     - task: NodeTool@0
       displayName: "Install Node.js"
       inputs:
         versionSpec: '$(nodeVersion)'
 
-    # 2. Install client dependencies
-    - script: npm install 
+    - script: |
+        cd client
+        npm install
       displayName: "Install Client Packages"
-      workingDirectory: '$(clientPath)'
 
-    # 3. Build React app (creates /build folder)
-    - script: npm run build
+    - script: |
+        cd client
+        npm run build
       displayName: "Build React App"
-      workingDirectory: '$(clientPath)'
 
-    # 4. Copy built React files to artifact folder
     - task: CopyFiles@2
       displayName: "Copy Client Build"
       inputs:
-        SourceFolder: '$(clientPath)/build'   # React output folder
+        SourceFolder: 'client/build'
         Contents: '**'
         TargetFolder: '$(Build.ArtifactStagingDirectory)/client'
 
-    # 5. Upload client artifact
     - task: PublishBuildArtifacts@1
       displayName: "Upload Client Artifact"
       inputs:
         PathtoPublish: '$(Build.ArtifactStagingDirectory)/client'
         ArtifactName: 'client-drop'
 
-# ──────────────────────────────────────────────────
-# STAGE 2 — BUILD SERVER (Node.js Backend)
-# ──────────────────────────────────────────────────
+# ──────────────────────────────────────────
+# STAGE 2 — BUILD SERVER
+# ──────────────────────────────────────────
 - stage: BuildServer
   displayName: "CI — Build Node.js Server"
-  dependsOn: []                      # runs PARALLEL to BuildClient
+  dependsOn: []
   jobs:
   - job: ServerBuild
     displayName: "Build Backend"
@@ -73,44 +71,39 @@ stages:
 
     steps:
 
-    # 1. Install Node.js
     - task: NodeTool@0
       displayName: "Install Node.js"
       inputs:
         versionSpec: '$(nodeVersion)'
 
-    # 2. Install server dependencies
-    - script: npm install
+    - script: |
+        cd server
+        npm install
       displayName: "Install Server Packages"
-      workingDirectory: '$(serverPath)'
 
-    # 3. Copy server files to artifact folder
-    #    Excludes node_modules (reinstalled on deploy)
     - task: CopyFiles@2
       displayName: "Package Server Files"
       inputs:
-        SourceFolder: '$(serverPath)'
+        SourceFolder: 'server'
         Contents: |
           **
-          !node_modules/**          
-          !**/*.test.js             
-          !**/*.spec.js             
+          !node_modules/**
+          !**/*.test.js
         TargetFolder: '$(Build.ArtifactStagingDirectory)/server'
 
-    # 4. Upload server artifact
     - task: PublishBuildArtifacts@1
       displayName: "Upload Server Artifact"
       inputs:
         PathtoPublish: '$(Build.ArtifactStagingDirectory)/server'
         ArtifactName: 'server-drop'
 
-# ──────────────────────────────────────────────────
-# STAGE 3 — DEPLOY (to Local Windows Folder)
-# ──────────────────────────────────────────────────
+# ──────────────────────────────────────────
+# STAGE 3 — DEPLOY
+# ──────────────────────────────────────────
 - stage: Deploy
   displayName: "CD — Deploy to Local PC"
   dependsOn:
-  - BuildClient                      # waits for BOTH stages to finish
+  - BuildClient
   - BuildServer
   condition: |
     and
@@ -121,13 +114,11 @@ stages:
 
   jobs:
   - job: DeployJob
-    displayName: "Deploy Full App"
     pool:
-      name: Default                  # your self-hosted local agent
+      name: Default                  # your self-hosted agent
 
     steps:
 
-    # 1. Download React client artifact
     - task: DownloadBuildArtifacts@1
       displayName: "Download Client Build"
       inputs:
@@ -136,7 +127,6 @@ stages:
         artifactName: 'client-drop'
         downloadPath: '$(System.ArtifactsDirectory)'
 
-    # 2. Download Node.js server artifact
     - task: DownloadBuildArtifacts@1
       displayName: "Download Server Build"
       inputs:
@@ -145,32 +135,26 @@ stages:
         artifactName: 'server-drop'
         downloadPath: '$(System.ArtifactsDirectory)'
 
-    # 3. Deploy React client files
     - task: CopyFiles@2
-      displayName: "Deploy Client to Folder"
+      displayName: "Deploy Client"
       inputs:
         SourceFolder: '$(System.ArtifactsDirectory)\client-drop'
         Contents: '**'
         TargetFolder: '$(deployFolder)\client'
         CleanTargetFolder: true
 
-    # 4. Deploy Node.js server files
     - task: CopyFiles@2
-      displayName: "Deploy Server to Folder"
+      displayName: "Deploy Server"
       inputs:
         SourceFolder: '$(System.ArtifactsDirectory)\server-drop'
         Contents: '**'
         TargetFolder: '$(deployFolder)\server'
         CleanTargetFolder: true
 
-    # 5. Install production packages on deployed server
     - script: npm install --production
-      displayName: "Install Server Production Packages"
+      displayName: "Install Production Packages"
       workingDirectory: '$(deployFolder)\server'
 
-    # 6. Confirm deployment success
-    - script: |
-        echo ✅ Client deployed to $(deployFolder)\client
-        echo ✅ Server deployed to $(deployFolder)\server
-        echo 🚀 Deployment Complete!
-      displayName: "Deployment Done"
+    - script: echo ✅ Deployment Complete!
+      displayName: "Done"
+
